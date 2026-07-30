@@ -32,7 +32,7 @@ HTML_TEMPLATE = """
         .card { background-color: #1e293b; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .log-item { background-color: #0f172a; border-left: 4px solid #38bdf8; margin-bottom: 15px; padding: 12px; border-radius: 4px; }
         .timestamp { font-size: 0.8em; color: #94a3b8; }
-        pre { background: #020617; padding: 10px; border-radius: 4px; overflow-x: auto; color: #a5f3fc; }
+        pre { background: #020617; padding: 10px; border-radius: 4px; overflow-x: auto; color: #a5f3fc; white-space: pre-wrap; }
         input[type="text"] { width: 75%; padding: 10px; border-radius: 4px; border: 1px solid #334155; background: #0f172a; color: white; }
         button { padding: 10px 20px; background-color: #0284c7; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button:hover { background-color: #0369a1; }
@@ -44,7 +44,7 @@ HTML_TEMPLATE = """
         
         <div class="card">
             <h3>Send Test Request</h3>
-            <form action="/api/generate" method="POST" onsubmit="sendPrompt(event)">
+            <form id="promptForm" onsubmit="sendPrompt(event)">
                 <input type="text" id="promptInput" placeholder="Type a prompt to send..." required>
                 <button type="submit">Submit</button>
             </form>
@@ -77,7 +77,7 @@ HTML_TEMPLATE = """
             await fetch('/api/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: prompt })
+                body: JSON.stringify({ prompt: prompt, source: "Web Dashboard" })
             });
             window.location.reload();
         }
@@ -88,8 +88,8 @@ HTML_TEMPLATE = """
 
 @app.route('/', methods=['GET'])
 def home():
-    # Render the web interface showing all stored request logs
-    return render_template_string(HTML_TEMPLATE, logs=reversed(REQUEST_LOGS))
+    # Render web interface showing recent requests
+    return render_template_string(HTML_TEMPLATE, logs=list(reversed(REQUEST_LOGS)))
 
 @app.route('/api/generate', methods=['POST'])
 def generate_ai_response():
@@ -97,20 +97,37 @@ def generate_ai_response():
     prompt = data.get('prompt', '')
 
     if not prompt:
-        return jsonify({"error": "Missing 'prompt' in JSON body"}), 400
+        error_msg = "Missing 'prompt' key in JSON body."
+        log_entry = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ip": request.remote_addr,
+            "endpoint": request.path,
+            "payload": data,
+            "response": f"Error: {error_msg}"
+        }
+        REQUEST_LOGS.append(log_entry)
+        return jsonify({"error": error_msg}), 400
 
     ai_reply = ""
     try:
-        # Query Ollama Cloud API
-        response = ollama_client.chat(
+        # Call Ollama Cloud API
+        res = ollama_client.chat(
             model='glm-5.2:cloud',
             messages=[{'role': 'user', 'content': prompt}]
         )
-        ai_reply = response['message']['content']
-    except Exception as e:
-        ai_reply = f"Error calling Ollama API: {str(e)}"
+        
+        # Parse object vs dict response depending on library version
+        if hasattr(res, 'message') and hasattr(res.message, 'content'):
+            ai_reply = res.message.content
+        elif isinstance(res, dict):
+            ai_reply = res.get('message', {}).get('content', str(res))
+        else:
+            ai_reply = str(res)
 
-    # Record payload and response details to show on the web interface
+    except Exception as e:
+        ai_reply = f"Ollama API Error: {str(e)}"
+
+    # Record request payload & output in memory
     log_entry = {
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "ip": request.remote_addr,
@@ -120,7 +137,6 @@ def generate_ai_response():
     }
     REQUEST_LOGS.append(log_entry)
     
-    # Keep log history capped at 50 items
     if len(REQUEST_LOGS) > 50:
         REQUEST_LOGS.pop(0)
 
