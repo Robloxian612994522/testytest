@@ -112,7 +112,7 @@ def generate_ai_response():
     try:
         # Call Ollama Cloud API
         res = ollama_client.chat(
-            model='glm-5.2:cloud',
+            model='gemma4:31b-cloud',
             messages=[{'role': 'user', 'content': prompt}]
         )
         
@@ -143,7 +143,7 @@ def generate_ai_response():
     return jsonify({
         "status": "success",
         "prompt": prompt,
-        "model": "glm-5.2:cloud",
+        "model": "gemma4:31b-cloud",
         "response": ai_reply
     }), 200
 
