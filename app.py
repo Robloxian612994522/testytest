@@ -1,31 +1,54 @@
+from flask import Flask, request, jsonify
+from ollama import Client
 import os
-from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-# Basic landing route to test if the server is running
+# Initialize Ollama Cloud Client using API key from Render Environment Variables
+ollama_api_key = os.environ.get("OLLAMA_API_KEY")
+ollama_client = Client(
+    host="https://ollama.com",
+    headers={"Authorization": f"Bearer {ollama_api_key}"} if ollama_api_key else {}
+)
+
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
         "status": "online",
-        "message": "Flask server is live on Render!"
+        "service": "Render AI Server",
+        "model": "glm-5.2:cloud"
     }), 200
 
-# Endpoint to receive data sent from your local PC
-@app.route('/api/connect', methods=['POST'])
-def receive_from_pc():
-    data = request.get_json(silent=True) or {}
-    user_message = data.get("message", "No message provided")
-    
-    print(f"Received message from PC: {user_message}")
-    
-    return jsonify({
-        "status": "success",
-        "received": user_message,
-        "reply": f"Server processed: '{user_message}'"
-    }), 200
+@app.route('/api/generate', methods=['POST'])
+def generate_ai_response():
+    data = request.get_json() or {}
+    prompt = data.get('prompt', '')
+
+    if not prompt:
+        return jsonify({"error": "Missing 'prompt' in JSON body"}), 400
+
+    try:
+        # Call glm-5.2:cloud via Ollama's Cloud API directly from Render
+        response = ollama_client.chat(
+            model='glm-5.2:cloud',
+            messages=[{'role': 'user', 'content': prompt}]
+        )
+        
+        ai_reply = response['message']['content']
+
+        return jsonify({
+            "status": "success",
+            "prompt": prompt,
+            "model": "glm-5.2:cloud",
+            "response": ai_reply
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Failed to query Ollama Cloud API: {str(e)}"
+        }), 500
 
 if __name__ == '__main__':
-    # Use the PORT environment variable assigned by Render, defaulting to 5000 locally
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
